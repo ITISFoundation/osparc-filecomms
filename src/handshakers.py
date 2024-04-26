@@ -64,6 +64,7 @@ class FileHandshaker:
         if self.last_write is not None:
             path, content = self.last_write
             self.write_filecontent(path, content)
+            logger.info(f"Retried writingfile content to {path}")
 
     def shake_initiator(self):
         """Shake hand by initiator"""
