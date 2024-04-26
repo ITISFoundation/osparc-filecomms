@@ -30,5 +30,7 @@ def test_handshakes_functional(tmp_path):
         run_handshake, receiver_uuid, test_output_dir, test_input_dir, False
     )
 
+    executor.shutdown()
+
     assert initiator_other_uuid.result() == receiver_uuid
     assert receiver_other_uuid.result() == initiator_uuid
