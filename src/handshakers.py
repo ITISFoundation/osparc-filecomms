@@ -66,9 +66,7 @@ class FileHandshaker:
             self.write_filecontent(path, content)
             logger.info(f"Retried writing file content to {path}")
 
-    def shake_initiator(self):
-        """Shake hand by initiator"""
-
+    def write_register_handshake(self):
         handshake_out = {
             "command": "register",
             "uuid": self.self_uuid,
@@ -80,50 +78,73 @@ class FileHandshaker:
         )
         logger.info(f"Wrote handshake file to {self.handshake_output_path}")
 
-        def try_handshake():
-            handshake_input_content = self.read_until_path_exists(
-                self.handshake_input_path,
-                wait_message="Waiting for handshake confirmation at "
-                f"{self.handshake_input_path}...",
-            )
+    def try_handshake(self):
+        handshake_input_content = self.read_until_path_exists(
+            self.handshake_input_path,
+            wait_message="Waiting for handshake confirmation at "
+            f"{self.handshake_input_path}...",
+        )
 
-            return json.loads(handshake_input_content)
+        return json.loads(handshake_input_content)
 
-        waiter = 0
+    def wait_for_confirmation(self):
+        waiter_confirm = 0
         while True:
-            handshake_in = try_handshake()
+            handshake_in = self.try_handshake()
             if (
                 handshake_in["command"] == "confirm_registration"
                 and handshake_in["confirmed_uuid"] == self.self_uuid
             ):
                 break
             else:
-                if waiter % self.print_polling_interval == 0:
+                if waiter_confirm % self.print_polling_interval == 0:
                     logger.info(
                         "Waiting for correct handshake registration "
                         "confirmation ..."
                     )
                     self.retry_last_write()
 
-                waiter += 1
+                waiter_confirm += 1
             time.sleep(self.polling_interval)
 
         other_uuid = handshake_in["uuid"]
+
+        return other_uuid
+
+    def write_confirmation(self, other_uuid):
+        if self.handshake_output_path.exists():
+            self.handshake_output_path.unlink()
 
         handshake_out = {
             "command": "confirm_registration",
             "uuid": self.self_uuid,
             "confirmed_uuid": other_uuid,
         }
-        if self.handshake_output_path.exists():
-            self.handshake_output_path.unlink()
         self.write_filecontent(
             self.handshake_output_path, json.dumps(handshake_out)
         )
 
         assert other_uuid is not None
 
-        self.other_uuid = other_uuid
+        logger.info(
+            f"Wrote handshake confirmation for {other_uuid} to "
+            f"{self.handshake_output_path}"
+        )
+
+    def shake_initiator(self):
+        """Shake hand by initiator"""
+
+        # Write a file to register with other side
+        self.write_register_handshake()
+
+        # Wait for a file confirming the registration
+        tmp_other_uuid = self.wait_for_confirmation()
+
+        # Write a file confirming our registration
+        self.write_confirmation(tmp_other_uuid)
+
+        # We are now sure about the other uuid
+        self.other_uuid = tmp_other_uuid
 
         return self.other_uuid
 
@@ -132,7 +153,7 @@ class FileHandshaker:
 
         other_uuid = None
         last_written_other_uuid = None
-        waiter = 0
+        task_waiter = 0
         while True:
             handshake_in = json.loads(
                 self.read_until_path_exists(
@@ -146,21 +167,13 @@ class FileHandshaker:
             if command == "register":
                 other_uuid = handshake_in["uuid"]
                 if other_uuid != last_written_other_uuid:
-                    if self.handshake_output_path.exists():
-                        self.handshake_output_path.unlink()
-                    handshake_out = {
-                        "command": "confirm_registration",
-                        "uuid": self.self_uuid,
-                        "confirmed_uuid": other_uuid,
-                    }
-
-                    self.write_filecontent(
-                        self.handshake_output_path, json.dumps(handshake_out)
-                    )
-
                     logger.info(
-                        f"Wrote handshake confirmation to {self.handshake_output_path}"
+                        "Received handshake registration from "
+                        f"{other_uuid} for the first time ..."
                     )
+
+                    self.write_confirmation(other_uuid)
+
                     last_written_other_uuid = other_uuid
             elif command == "confirm_registration":
                 if (
@@ -168,16 +181,20 @@ class FileHandshaker:
                     and handshake_in["uuid"] == other_uuid
                     and handshake_in["confirmed_uuid"] == self.self_uuid
                 ):
+                    logger.info(
+                        "Received valid handshake confirmation from "
+                        f"{other_uuid}, handshake finished."
+                    )
                     break
             else:
                 raise ValueError(f"Invalid handshake command: {command}")
 
-            if waiter % self.print_polling_interval == 0:
-                logger.info("Waiting for registration confirmation ...")
+            if task_waiter % self.print_polling_interval == 0:
+                logger.info("Waiting for handshake command ...")
                 self.retry_last_write()
 
             time.sleep(self.polling_interval)
-            waiter += 1
+            task_waiter += 1
 
         assert other_uuid is not None
 
