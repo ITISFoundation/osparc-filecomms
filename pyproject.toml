@@ -7,6 +7,7 @@ authors = [
 license={file="LICENSE.txt"}
 readme="README.md"
 dynamic=["version"]
+dependencies=["watchdog"]
 
 [build-system]
 requires=["setuptools", "setuptools_scm"]
