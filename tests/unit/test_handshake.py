@@ -1,9 +1,8 @@
 import json
-import uuid
 import pathlib as pl
+import uuid
 
 import pytest
-
 from osparc_filecomms import handshakers
 
 test_input_dir = pl.Path("doesntexist_input")
